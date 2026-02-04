@@ -4,9 +4,249 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebAudio Keyboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            transition: background-color 0.3s ease;
+        }
+        .instructions {
+            margin-top: 20px;
+            color: #555
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        label {
+            margin-right: 10px;
+        }
+        #chord-display {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 20px 0;
+            min-height: 36px;
+        }
+    </style>
 </head>
 <body>
     <h1>My WebAudio Keyboard</h1>
-    <p>Press some keys to test!</p>
+    <p>Click on the page first, then use your keyboard to play some notes (something special 
+        may or may not happen if you play a C chord[hint: Z+C+B, Z+D+B, Z+D+G, or Z+C+H together]).
+        Try and find more chords before referencing below [there are 12!].</p>
+
+    <div class="controls">
+        <label for="waveform">Waveform:</label>
+        <select id="waveform">
+            <option value="sine">Sine</option>
+            <option value="sawtooth">Sawtooth</option>
+            <option value="square">Square</option>
+            <option value="triangle">Triangle</option>
+        </select>
+    </div>
+
+    <div class="controls">
+        <label for="chord-hint">Chord Reference:</label>
+        <select id="chord-hint">
+            <option value="">-- Select to see keys --</option>
+            <optgroup label="Triads (3 notes)">
+                <option value="c-major">C Major: Z + C + B</option>
+                <option value="c-minor">C Minor: Z + D + B</option>
+                <option value="c-dim">C Diminished: Z + D + G</option>
+                <option value="c-aug">C Augmented: Z + C + H</option>
+                <option value="c-sus2">C Sus2: Z + X + B</option>
+                <option value="c-sus4">C Sus4: Z + V + B</option>
+            </optgroup>
+            <optgroup label="7th Chords (4 notes)">
+                <option value="c-maj7">C Major 7: Z + C + B + M</option>
+                <option value="c-min7">C Minor 7: Z + D + B + J</option>
+                <option value="c-7">C7: Z + C + B + J</option>
+                <option value="c-dim7">C Dim 7: Z + D + G + N</option>
+            </optgroup>
+            <optgroup label="Other (4 notes)">
+                <option value="c-add9">C Add9: Z + C + B + X</option>
+                <option value="c-6">C6: Z + C + B + N</option>
+            </optgroup>
+        </select>
+    </div>
+
+    <div id="chord-display"></div>
+
+    <div class="instructions">
+        <p><strong>Lower octave:</strong> Z S X D C V G B H N J M</p>
+        <p><strong>Upper octave:</strong> Q 2 W 3 E R 5 T 6 Y 7 U</p>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function(event) {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            // global gain for volume control and clipping preventing
+            const globalGain = audioCtx.createGain()
+            globalGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+            globalGain.connect(audioCtx.destination)
+
+            // evenlope settings
+            const attack = 0.02;
+            const decay = 0.1;
+            const sustain = 0.7;
+            const release = 0.1;
+
+            // polyphony settings
+            const maxVoices = 10;
+            const gainPerVoice = 0.8 / maxVoices; // divided among the max voices
+
+            // key to note
+            const cChords = {
+                'C Major':      ['90', '67', '66'],  // Z + C + B (C, E, G)
+                'C Minor':      ['90', '68', '66'],  // Z + D + B (C, Eb, G)
+                'C Diminished': ['90', '68', '71'],  // Z + D + G (C, Eb, Gb)
+                'C Augmented':  ['90', '67', '72'],  // Z + C + H (C, E, G#)
+                'C Sus2':       ['90', '88', '66'],  // Z + X + B (C, D, G)
+                'C Sus4':       ['90', '86', '66'],  // Z + V + B (C, F, G)
+
+                // 7th chords (4 notes)
+                'C Major 7':    ['90', '67', '66', '77'],  // Z + C + B + M (C, E, G, B)
+                'C Minor 7':    ['90', '68', '66', '74'],  // Z + D + B + J (C, Eb, G, Bb)
+                'C7':           ['90', '67', '66', '74'],  // Z + C + B + J (C, E, G, Bb)
+                'C Dim 7':      ['90', '68', '71', '78'],  // Z + D + G + N (C, Eb, Gb, A)
+
+                // some others
+                'C Add9':       ['90', '67', '66', '88'],  // Z + C + B + X (C, E, G, D)
+                'C6':           ['90', '67', '66', '78'],  // Z + C + B + N (C, E, G, A)
+            };
+
+            const chordColors = {
+                'C Major': '#90EE90',      // Green
+                'C Minor': '#87CEEB',      // Blue
+                'C Diminished': '#DDA0DD', // Plum
+                'C Augmented': '#FFD700',  // Gold
+                'C Sus2': '#98FB98',       // Pale green
+                'C Sus4': '#F0E68C',       // Khaki
+                'C Major 7': '#00FA9A',    // Medium spring green
+                'C Minor 7': '#ADD8E6',    // Light blue
+                'C7': '#FFA500',           // Orange
+                'C Dim 7': '#DA70D6',      // Orchid
+                'C Add9': '#7FFFD4',       // Aquamarine
+                'C6': '#FFB6C1',           // Light pink
+                'default': '#FFFFFF'
+            };
+
+             const keyboardFrequencyMap = {
+                '90': 261.625565300598634,  //Z - C
+                '83': 277.182630976872096, //S - C#
+                '88': 293.664767917407560,  //X - D
+                '68': 311.126983722080910, //D - D#
+                '67': 329.627556912869929,  //C - E
+                '86': 349.228231433003884,  //V - F
+                '71': 369.994422711634398, //G - F#
+                '66': 391.995435981749294,  //B - G
+                '72': 415.304697579945138, //H - G#
+                '78': 440.000000000000000,  //N - A
+                '74': 466.163761518089916, //J - A#
+                '77': 493.883301256124111,  //M - B
+                '81': 523.251130601197269,  //Q - C
+                '50': 554.365261953744192, //2 - C#
+                '87': 587.329535834815120,  //W - D
+                '51': 622.253967444161821, //3 - D#
+                '69': 659.255113825739859,  //E - E
+                '82': 698.456462866007768,  //R - F
+                '53': 739.988845423268797, //5 - F#
+                '84': 783.990871963498588,  //T - G
+                '54': 830.609395159890277, //6 - G#
+                '89': 880.000000000000000,  //Y - A
+                '55': 932.327523036179832, //7 - A#
+                '85': 987.766602512248223,  //U - B
+            };
+
+            let activeOcsillators  = {};
+            let releasingOscillators = [];
+
+            window.addEventListener('keydown', keyDown, false);
+            window.addEventListener('keyup', keyUp, false);
+
+            function keyDown(event) {
+                const key = (event.detail || event.which).toString();
+                if (keyboardFrequencyMap[key] && !activeOcsillators [key]) {
+                    playNote(key);
+                    detectChord();
+                }
+            }
+
+            function keyUp(event) {
+                const key = (event.detail || event.which).toString();
+                if (keyboardFrequencyMap[key] && activeOcsillators[key]) {
+                    releaseNote(key);
+                    detectChord();
+                }
+            }
+
+            function detectChord() {
+                const activeKeys = Object.keys(activeOcsillators);
+                const chordDisplay = document.getElementById('chord-display');
+
+                // check each C chord
+                for (const [chordName, chordKeys] of Object.entries(cChords)) {
+                    if (activeKeys.length === chordKeys.length && 
+                        chordKeys.every(key => activeKeys.includes(key))) {
+                            document.body.style.backgroundColor = chordColors[chordName];
+                            chordDisplay.textContent = chordName + ' 🎵';
+                            return;
+                        }
+                }
+
+                // default (no chord found)
+                document.body.style.backgroundColor = chordColors['default'];
+                chordDisplay.textContent = '';
+            }
+
+            function playNote(key) {
+                // simply just to be safe, enforce the max 10 in case of clipping
+                if (Object.keys(activeOcsillators).length >= maxVoices) {
+                    return;
+                }
+                const osc = audioCtx.createOscillator();
+                const noteGain = audioCtx.createGain();
+
+                // waveform from the dropdown
+                const waveform = document.getElementById('waveform').value;
+
+                osc.frequency.setValueAtTime(keyboardFrequencyMap[key], audioCtx.currentTime);
+                osc.type = waveform;
+
+                // oscillator to notegain to global gain to destination
+                osc.connect(noteGain)
+                noteGain.connect(globalGain);
+
+                noteGain.gain.setValueAtTime(0, audioCtx.currentTime);
+
+                // ramp to 1
+                noteGain.gain.linearRampToValueAtTime(gainPerVoice, audioCtx.currentTime + attack);
+                noteGain.gain.linearRampToValueAtTime(sustain * gainPerVoice, audioCtx.currentTime + attack + decay);
+
+                osc.start()
+
+                activeOcsillators[key] = { osc: osc, gain: noteGain };
+            }
+
+            function releaseNote(key) {
+                const { osc, gain } = activeOcsillators[key];
+                const now = audioCtx.currentTime;
+
+                gain.gain.cancelScheduledValues(now);
+                gain.gain.setValueAtTime(gain.gain.value, now);
+                gain.gain.linearRampToValueAtTime(0, now + release);
+
+                osc.stop(now + release);
+
+                // created the bottom so that a new note can be played while the old one is out.
+                releasingOscillators.push({ osc, gain });
+                delete activeOcsillators[key];
+                
+                osc.onended = () => {
+                    releasingOscillators = releasingOscillators.filter(o => o.osc !== osc);
+                }
+            };
+        });
+    </script>
 </body>
 </html>
